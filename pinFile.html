@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>PIN Encrypt / Decrypt</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 400px;
+            margin: 40px auto;
+        }
+        input, select, button {
+            width: 100%;
+            padding: 10px;
+            margin-top: 10px;
+        }
+        .result {
+            margin-top: 15px;
+            word-break: break-all;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+<h2>PIN Encrypt / Decrypt</h2>
+
+<select id="mode">
+    <option value="encrypt">Encrypt</option>
+    <option value="decrypt">Decrypt</option>
+</select>
+
+<input type="password" id="password" placeholder="Enter Password" />
+<input type="text" id="pin" placeholder="Enter PIN / Encrypted PIN" />
+
+<button onclick="process()">Submit</button>
+
+<div class="result" id="result"></div>
+
+<script>
+const salt = new TextEncoder().encode("FixedSalt123");
+
+async function getKey(password) {
+    const enc = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey(
+        "raw",
+        enc.encode(password),
+        { name: "PBKDF2" },
+        false,
+        ["deriveKey"]
+    );
+
+    return crypto.subtle.deriveKey(
+        {
+            name: "PBKDF2",
+            salt: salt,
+            iterations: 100000,
+            hash: "SHA-256"
+        },
+        keyMaterial,
+        { name: "AES-GCM", length: 256 },
+        false,
+        ["encrypt", "decrypt"]
+    );
+}
+
+async function encrypt(pin, password) {
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const key = await getKey(password);
+    const encrypted = await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv },
+        key,
+        new TextEncoder().encode(pin)
+    );
+
+    const combined = new Uint8Array(iv.length + encrypted.byteLength);
+    combined.set(iv);
+    combined.set(new Uint8Array(encrypted), iv.length);
+
+    return btoa(String.fromCharCode(...combined));
+}
+
+async function decrypt(cipherText, password) {
+    const data = Uint8Array.from(atob(cipherText), c => c.charCodeAt(0));
+    const iv = data.slice(0, 12);
+    const encrypted = data.slice(12);
+
+    const key = await getKey(password);
+    const decrypted = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv },
+        key,
+        encrypted
+    );
+
+    return new TextDecoder().decode(decrypted);
+}
+
+async function process() {
+    const mode = document.getElementById("mode").value;
+    const password = document.getElementById("password").value;
+    const pin = document.getElementById("pin").value;
+    const resultDiv = document.getElementById("result");
+
+    try {
+        if (mode === "encrypt") {
+            const encrypted = await encrypt(pin, password);
+            resultDiv.textContent = "Encrypted PIN: " + encrypted;
+        } else {
+            const decrypted = await decrypt(pin, password);
+            resultDiv.textContent = "Decrypted PIN: " + decrypted;
+        }
+    } catch (e) {
+        resultDiv.textContent = "Error: Invalid password or data";
+    }
+}
+</script>
+
+</body>
+</html>
